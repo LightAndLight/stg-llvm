@@ -30,6 +30,7 @@ import LLVM.Pretty (ppllvm)
 import System.Exit (ExitCode(..))
 import System.Process (readProcessWithExitCode)
 
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified LLVM.AST as LLVM (Type)
 
 import Compile
@@ -130,6 +131,43 @@ prop_incr_2 =
     res <- liftIO $ lli code
     res === num + 1
 
+prop_incrMany_1 :: Property
+prop_incrMany_1 =
+  property $ do
+    (num, initNum) <-
+      forAllWith
+        (\(a, b) -> "(" <> show a <> ",\n\n" <> showIRBuilder b <> ")")
+        genIntPtr
+    num' <- forAll $ Gen.word32 (Range.constant 0 (2^32 - num))
+    let
+      code =
+        do
+          addr <- initNum
+          res <- incrMany num' addr
+          ret res
+
+    res <- liftIO $ lli code
+    res === num + num'
+
+prop_incrMany_2 :: Property
+prop_incrMany_2 =
+  property $ do
+    (num, initNum) <-
+      forAllWith
+        (\(a, b) -> "(" <> show a <> ",\n\n" <> showIRBuilder b <> ")")
+        genIntPtr
+    num' <- forAll $ Gen.word32 (Range.constant 0 (2^32 - num))
+    let
+      code =
+        do
+          addr <- initNum
+          _ <- incrMany num' addr
+          res <- load addr 0
+          ret res
+
+    res <- liftIO $ lli code
+    res === num + num'
+
 prop_decr_1 :: Property
 prop_decr_1 =
   property $ do
@@ -204,6 +242,31 @@ prop_stack_push =
     res <- liftIO $ lli code
     res === newVal
 
+prop_stack_pushMany :: Property
+prop_stack_pushMany =
+  property $ do
+    (arrayItems, initArray) <- forAllWith showArrayPtr genArrayPtr
+    newVals <-
+      forAll $
+      Gen.nonEmpty
+        (Range.constant 1 (100 - length arrayItems))
+        (Gen.word32 (Range.constant 0 (2^32)))
+    let
+      code = do
+        arrayStart <- initArray
+
+        sp <- alloca i32 Nothing 0
+        offset <- int32 $ fromIntegral (length arrayItems - 1)
+        store sp 0 offset
+
+        vals <- traverse (int32 . fromIntegral) newVals
+        pushManyStack vals sp arrayStart
+        val' <- peekStack sp arrayStart
+        ret val'
+
+    res <- liftIO $ lli code
+    res === NonEmpty.last newVals
+
 prop_stack_push_pop :: Property
 prop_stack_push_pop =
   property $ do
@@ -230,8 +293,11 @@ main :: IO Bool
 main = do
   check prop_incr_1
   check prop_incr_2
+  check prop_incrMany_1
+  check prop_incrMany_2
   check prop_decr_1
   check prop_decr_2
   check prop_stack_peek
   check prop_stack_push
+  check prop_stack_pushMany
   check prop_stack_push_pop
