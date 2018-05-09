@@ -1,6 +1,6 @@
 module Syntax where
 
-newtype Var = Var String deriving (Eq, Show)
+newtype Var = Var String deriving (Eq, Show, Ord)
 newtype Constr = Constr String deriving (Eq, Show)
 
 data Binding

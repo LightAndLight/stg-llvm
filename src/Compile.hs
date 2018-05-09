@@ -2,11 +2,14 @@
 {-# language DeriveDataTypeable #-}
 module Compile where
 
+import Control.Applicative ((<|>))
 import Control.Exception (Exception, throw)
 import Control.Monad.Reader (MonadReader, asks)
 import Data.Foldable (for_, toList)
 import Data.List.NonEmpty (NonEmpty)
+import Data.Map (Map)
 import Data.Semigroup ((<>))
+import Data.Traversable (for)
 import Data.Word (Word32)
 import LLVM.AST.AddrSpace (AddrSpace(..))
 import LLVM.AST.Constant (Constant(Undef))
@@ -21,6 +24,7 @@ import LLVM.IRBuilder.Monad (MonadIRBuilder, emitInstr, emitInstrVoid)
 import Type.Reflection (Typeable)
 
 import qualified Data.List.NonEmpty as NonEmpty
+import qualified Data.Map as Map
 import qualified LLVM.AST.Type as LLVM
 import qualified LLVM.AST.CallingConvention as CC
 
@@ -59,6 +63,20 @@ tailcall fun as = do
 nodeRegType :: LLVM.Type
 nodeRegType = ptr (ptr closureType)
 
+data Value
+  = VLit Literal -- literal
+  | VAddr Operand -- ptr(closure)
+  deriving (Eq, Show)
+
+val :: MonadReader Env m => Atom -> m Value
+val (AtomVar v) = do
+  gs <- asks globals
+  ls <- asks locals
+  case Map.lookup v ls <|> VAddr <$> Map.lookup v gs of
+    Nothing -> error $ "val could not find '" <> show v <> "' in environment"
+    Just res -> pure res
+val (AtomLit l) = pure $ VLit l
+
 data Env
   = Env
   { nodeReg :: Operand -- ptr (ptr closure)
@@ -68,6 +86,8 @@ data Env
   , spA :: Operand -- ptr int32
   , bStack :: Operand -- ptr (array B)
   , spB :: Operand -- ptr int32
+  , globals :: Map Var Operand -- mapping from names to ptr(closure)
+  , locals :: Map Var Value
   } deriving (Eq, Show)
 
 incr
@@ -253,11 +273,33 @@ cgProgram
   -> m ()
 cgProgram = undefined
 
+cgLiteral
+  :: MonadReader Env m
+  => Literal
+  -> m Operand
+cgLiteral (LitInt i) = int32 $ fromIntegral i
+
 cgExpr
   :: ( MonadReader Env m
      , MonadIRBuilder m
      )
   => Expr
   -> m ()
-cgExpr (App f vs) = do
-  undefined
+cgExpr (App fun vs) = do
+  fun' <- val $ AtomVar fun
+  case fun' of
+    VLit{} -> undefined
+    VAddr f -> do
+      for vs $ \v -> do
+        v' <- val v
+        case v' of
+          VAddr addr -> do
+            stack <- asks aStack
+            sp <- asks spA
+            pushStack addr sp stack
+          VLit l -> do
+            stack <- asks bStack
+            sp <- asks spB
+            l' <- cgLiteral l
+            pushStack l' sp stack
+      enter f

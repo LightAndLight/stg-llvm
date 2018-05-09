@@ -20,6 +20,7 @@ library
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.10 && <4.11
+                     , containers >=0.5 && <0.6
                      , llvm-hs >=5.1 && <5.2
                      , llvm-hs-pure >=5.1 && <5.2
                      , mtl >=2.2 && <2.3
