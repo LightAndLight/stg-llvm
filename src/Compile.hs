@@ -175,7 +175,7 @@ pushManyStack vals sp stack = do
             spVal <- load sp 0
             _ <- incrMany (fromIntegral $ length vals) sp
             zero <- int32 0
-            for_ (zip [0..] $ toList vals) $ \(n, val) -> do
+            for_ (zip [1..] $ toList vals) $ \(n, val) -> do
               offset <- int32 n
               sp' <- add offset spVal
               addr <- gep stack [zero, sp']
